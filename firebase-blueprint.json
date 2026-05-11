@@ -1,0 +1,259 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "User profile with gamification stats",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string" },
+        "displayName": { "type": "string" },
+        "email": { "type": "string" },
+        "photoURL": { "type": "string" },
+        "role": { "type": "string", "enum": ["student", "tutor", "admin"] },
+        "xp": { "type": "integer" },
+        "level": { "type": "integer" },
+        "streak": { "type": "integer" },
+        "lastLogin": { "type": "string", "format": "date-time" },
+        "enrolledSubjects": { "type": "array", "items": { "type": "string" } },
+        "badges": { "type": "array", "items": { "type": "string" } },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["uid", "email", "role"]
+    },
+    "Subject": {
+      "title": "Subject",
+      "description": "Educational subject with level and syllabus",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "level": { "type": "string", "enum": ["O-Level", "A-Level"] },
+        "syllabus": { "type": "string", "enum": ["ZIMSEC", "Cambridge"] },
+        "icon": { "type": "string" },
+        "color": { "type": "string" },
+        "description": { "type": "string" },
+        "topicsCount": { "type": "integer" },
+        "totalXP": { "type": "integer" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["name", "level", "syllabus"]
+    },
+    "Topic": {
+      "title": "Topic",
+      "description": "Learning unit within a subject",
+      "type": "object",
+      "properties": {
+        "subjectId": { "type": "string" },
+        "title": { "type": "string" },
+        "order": { "type": "integer" },
+        "price": { "type": "number" },
+        "xpReward": { "type": "integer" },
+        "videoUrl": { "type": "string" },
+        "videoDuration": { "type": "string" },
+        "description": { "type": "string" },
+        "resources": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "name": { "type": "string" },
+              "fileUrl": { "type": "string" }
+            }
+          }
+        },
+        "exam": {
+          "type": "object",
+          "properties": {
+            "passingPercentage": { "type": "integer" },
+            "timeLimitMinutes": { "type": "integer" },
+            "questions": { "type": "array" }
+          }
+        },
+        "badgeId": { "type": "string" },
+        "prerequisites": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "UserTopic": {
+      "title": "UserTopic",
+      "description": "User progress on a specific topic",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string" },
+        "topicId": { "type": "string" },
+        "subjectId": { "type": "string" },
+        "status": { "type": "string", "enum": ["locked", "unlocked", "completed"] },
+        "paymentRef": { "type": "string" },
+        "unlockedAt": { "type": "string", "format": "date-time" },
+        "passed": { "type": "boolean" },
+        "bestScore": { "type": "number" },
+        "completedAt": { "type": "string", "format": "date-time" }
+      }
+    },
+    "Certificate": {
+      "title": "Certificate",
+      "description": "Issued certificate for topic or subject mastery",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string" },
+        "topicId": { "type": "string" },
+        "subjectId": { "type": "string" },
+        "type": { "type": "string", "enum": ["topic", "subject"] },
+        "issuedAt": { "type": "string", "format": "date-time" },
+        "pdfUrl": { "type": "string" },
+        "certCode": { "type": "string" }
+      }
+    },
+    "Group": {
+      "title": "Group",
+      "description": "Student group for assignment distribution",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "adminUid": { "type": "string" },
+        "studentIds": { "type": "array", "items": { "type": "string" } },
+        "createdAt": { "type": "string", "format": "date-time" }
+      }
+    },
+    "Assignment": {
+      "title": "Assignment",
+      "description": "Assigned work for students",
+      "type": "object",
+      "properties": {
+        "topicId": { "type": "string" },
+        "assignedByUid": { "type": "string" },
+        "assignedToUid": { "type": "string" },
+        "title": { "type": "string" },
+        "instructions": { "type": "string" },
+        "status": { "type": "string", "enum": ["pending", "completed"] },
+        "createdAt": { "type": "string", "format": "date-time" }
+      }
+    },
+    "Submission": {
+      "title": "Submission",
+      "description": "Student work submission",
+      "type": "object",
+      "properties": {
+        "assignmentId": { "type": "string" },
+        "studentUid": { "type": "string" },
+        "studentName": { "type": "string" },
+        "fileUrls": { "type": "array", "items": { "type": "string" } },
+        "textResponse": { "type": "string" },
+        "submittedAt": { "type": "string", "format": "date-time" },
+        "grade": { "type": "number" },
+        "feedback": { "type": "string" },
+        "status": { "type": "string", "enum": ["submitted", "marked", "returned"] }
+      }
+    },
+    "Notification": {
+      "title": "Notification",
+      "description": "System-wide or targeted notification",
+      "type": "object",
+      "properties": {
+        "title": { "type": "string" },
+        "body": { "type": "string" },
+        "status": { "type": "string", "enum": ["pending", "sent", "failed"] },
+        "scheduledFor": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      }
+    },
+    "Video": {
+      "title": "Video",
+      "description": "Curated video library item",
+      "type": "object",
+      "properties": {
+        "title": { "type": "string" },
+        "youtubeUrl": { "type": "string" },
+        "thumbnailUrl": { "type": "string" },
+        "duration": { "type": "string" },
+        "subjectTags": { "type": "array", "items": { "type": "string" } },
+        "description": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      }
+    },
+    "Chat": {
+      "title": "Chat",
+      "description": "Conversation between users",
+      "type": "object",
+      "properties": {
+        "participants": { "type": "array", "items": { "type": "string" } },
+        "lastMessage": { "type": "string" },
+        "lastUpdated": { "type": "string", "format": "date-time" }
+      }
+    },
+    "ChatMessage": {
+      "title": "ChatMessage",
+      "description": "Individual message in a chat",
+      "type": "object",
+      "properties": {
+        "senderUid": { "type": "string" },
+        "text": { "type": "string" },
+        "fileUrl": { "type": "string" },
+        "timestamp": { "type": "string", "format": "date-time" }
+      }
+    },
+    "Session": {
+      "title": "Session",
+      "description": "Live teaching session with whiteboard data",
+      "type": "object",
+      "properties": {
+        "hostUid": { "type": "string" },
+        "boardData": { "type": "object" },
+        "participants": { "type": "array", "items": { "type": "string" } },
+        "createdAt": { "type": "string", "format": "date-time" }
+      }
+    }
+  },
+  "firestore": {
+    "users": {
+      "schema": "User",
+      "description": "User profile collection"
+    },
+    "subjects": {
+      "schema": "Subject",
+      "description": "Subjects available on the platform"
+    },
+    "subjects/{subjectId}/topics": {
+      "schema": "Topic",
+      "description": "Topics within a subject"
+    },
+    "userTopics": {
+      "schema": "UserTopic",
+      "description": "Registry of unlocked and completed topics for users"
+    },
+    "certificates": {
+      "schema": "Certificate",
+      "description": "Official records of earned certificates"
+    },
+    "groups": {
+      "schema": "Group",
+      "description": "Student groups"
+    },
+    "assignments": {
+      "schema": "Assignment",
+      "description": "Student assignments"
+    },
+    "submissions": {
+      "schema": "Submission",
+      "description": "Work submitted by students"
+    },
+    "notifications": {
+      "schema": "Notification",
+      "description": "System notifications"
+    },
+    "videos": {
+      "schema": "Video",
+      "description": "Admin curated video library"
+    },
+    "chats": {
+      "schema": "Chat",
+      "description": "Direct messages"
+    },
+    "chats/{chatId}/messages": {
+      "schema": "ChatMessage",
+      "description": "Messages within a conversation"
+    },
+    "sessions": {
+      "schema": "Session",
+      "description": "Live whiteboard sessions"
+    }
+  }
+}

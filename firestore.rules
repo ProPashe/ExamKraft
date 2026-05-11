@@ -1,0 +1,151 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // 0. Default deny
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // 0.1 Primitives
+    function isSignedIn() { return request.auth != null; }
+    function isOwner(uid) { return isSignedIn() && request.auth.uid == uid; }
+    function isAdmin() { 
+      return isSignedIn() && (
+        exists(/databases/$(database)/documents/admins/$(request.auth.uid))
+      ); 
+    }
+    function isVerified() { return isSignedIn() && request.auth.token.email_verified == true; }
+    function incoming() { return request.resource.data; }
+    function existing() { return resource.data; }
+    function isValidId(id) { return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$'); }
+
+    // 1. Users
+    match /users/{userId} {
+      function isValidUser(data) {
+        return data.uid == request.auth.uid &&
+               data.email is string && data.email.size() <= 200 &&
+               data.xp is int && data.xp >= 0 &&
+               data.level is int && data.level >= 0;
+      }
+      allow get: if isSignedIn();
+      allow list: if isSignedIn(); // Allow leaderboard access
+      allow create: if isOwner(userId) && isValidUser(incoming());
+      allow update: if (isOwner(userId) && isValidUser(incoming()) && 
+                        incoming().diff(existing()).affectedKeys().hasOnly(['displayName', 'photoURL', 'lastLogin', 'streak', 'xp', 'level']) &&
+                        incoming().role == existing().role) || // Prevent self-elevation to admin
+                      isAdmin();
+
+      match /assignedVideos/{videoId} {
+        allow read: if isOwner(userId) || isAdmin();
+        allow write: if isAdmin();
+      }
+    }
+
+    // 2. Subjects
+    match /subjects/{subjectId} {
+      allow read: if true;
+      allow write: if isAdmin();
+      
+      match /topics/{topicId} {
+        allow read: if true; // Topics metadata can be seen
+        allow write: if isAdmin();
+      }
+    }
+
+    // 3. UserTopics (Enrollments & Progress)
+    match /userTopics/{utId} {
+      function isValidUserTopic(data) {
+        return data.userId == request.auth.uid &&
+               isValidId(data.topicId) &&
+               data.status in ['locked', 'unlocked', 'completed'];
+      }
+      allow get: if isSignedIn() && (resource.data.userId == request.auth.uid || isAdmin());
+      allow list: if isSignedIn() && (resource.data.userId == request.auth.uid || isAdmin());
+      allow create: if isOwner(incoming().userId) && isValidUserTopic(incoming()) && incoming().status == 'locked'; // Only allow creating locked topics
+      allow update: if (isOwner(existing().userId) && isValidUserTopic(incoming()) && 
+                        incoming().diff(existing()).affectedKeys().hasOnly(['passed', 'bestScore', 'completedAt']) && // Remove 'status' and 'paymentRef' from user updates
+                        incoming().status == existing().status) || // Ensure status hasn't changed if not admin
+                      isAdmin();
+    }
+
+    // 4. Certificates
+    match /certificates/{certId} {
+      allow get: if true; // Publicly verifiable
+      allow list: if isSignedIn() && (resource.data.uid == request.auth.uid || isAdmin());
+      allow write: if isAdmin(); // Only system/admin can issue certificates
+    }
+
+    // 5. Admins collection
+    match /admins/{adminId} {
+      allow read: if isSignedIn() && (adminId == request.auth.uid || isAdmin());
+      allow write: if isSignedIn() && adminId == request.auth.uid && (request.auth.token.email == 'mudzimwapanashe123@gmail.com' || request.auth.token.email == 'admin@examkraft.com');
+    }
+
+    // 6. Transactions
+    match /transactions/{transId} {
+      allow read: if isAdmin() || (isSignedIn() && resource.data.userId == request.auth.uid);
+      allow write: if false; 
+    }
+
+    // 7. Announcements
+    match /announcements/{announcementId} {
+      allow read: if isSignedIn();
+      allow write: if isAdmin();
+    }
+
+    // 8. Q&A (Supports Collection Group for Admin)
+    match /{path=**}/qa/{qaId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn() && request.resource.data.userId == request.auth.uid;
+      allow update: if isAdmin();
+      allow delete: if isAdmin();
+    }
+
+    // 10. Chats & Messages
+    match /chats/{chatId} {
+      allow read: if isSignedIn() && (request.auth.uid in resource.data.participants || isAdmin());
+      allow create: if isSignedIn();
+      allow update: if isSignedIn() && (request.auth.uid in resource.data.participants || isAdmin());
+
+      match /messages/{messageId} {
+        allow read: if isSignedIn() && (request.auth.uid in get(/databases/$(database)/documents/chats/$(chatId)).data.participants || isAdmin());
+        allow create: if isSignedIn() && (request.auth.uid in get(/databases/$(database)/documents/chats/$(chatId)).data.participants || isAdmin());
+      }
+    }
+
+    // 11. Teaching Sessions (Live Whiteboard)
+    match /sessions/{sessionId} {
+      allow read: if isSignedIn();
+      allow write: if isAdmin() || (isSignedIn() && request.auth.uid == resource.data.hostUid) || (request.resource.data.keys().hasOnly(['boardData', 'lastUpdated', 'isLocked']) && isSignedIn());
+
+      match /audioNotes/{noteId} {
+        allow read: if isSignedIn();
+        allow write: if isSignedIn();
+      }
+    }
+
+    // 12. Assignments & Submissions
+    match /assignments/{assignmentId} {
+      allow read: if isSignedIn() && (request.auth.uid in resource.data.assignedIds || isAdmin());
+      allow write: if isAdmin();
+    }
+
+    match /submissions/{submissionId} {
+      allow read: if isSignedIn() && (resource.data.studentUid == request.auth.uid || isAdmin());
+      allow create: if isSignedIn() && request.resource.data.studentUid == request.auth.uid;
+      allow update: if isAdmin() || (isSignedIn() && resource.data.studentUid == request.auth.uid && existing().status == 'draft');
+    }
+
+    // 13. Notifications
+    match /notifications/{notifId} {
+      allow read: if isSignedIn();
+      allow write: if isAdmin();
+    }
+
+    // 14. Video Library
+    match /videos/{videoId} {
+      allow read: if isSignedIn();
+      allow write: if isAdmin();
+    }
+  }
+}

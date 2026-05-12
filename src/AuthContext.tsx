@@ -2,16 +2,23 @@ import React, { createContext, useContext, useEffect, useState } from 'react';
 import { User as FirebaseUser } from 'firebase/auth';
 import { doc, onSnapshot } from 'firebase/firestore';
 import { db } from './lib/firebase';
-import { subscribeToAuth, handleRedirectResult, UserProfile } from './services/authService';
+import { subscribeToAuth, handleRedirectResult, ensureUserProfile, logout as authLogout, UserProfile } from './services/authService';
 
 interface AuthContextType {
   user: FirebaseUser | null;
   profile: UserProfile | null;
   loading: boolean;
   authError: string | null;
+  logout: () => Promise<void>;
 }
 
-const AuthContext = createContext<AuthContextType>({ user: null, profile: null, loading: true, authError: null });
+const AuthContext = createContext<AuthContextType>({ 
+  user: null, 
+  profile: null, 
+  loading: true, 
+  authError: null,
+  logout: async () => {} 
+});
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [user, setUser] = useState<FirebaseUser | null>(null);
@@ -45,20 +52,32 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }, []);
 
   useEffect(() => {
-    if (user) {
-      const userRef = doc(db, 'users', user.uid);
-      const unsubscribeProfile = onSnapshot(userRef, (snap) => {
-        if (snap.exists()) {
-          setProfile(snap.data() as UserProfile);
-        }
-        setLoading(false);
-      });
-      return () => unsubscribeProfile();
-    }
+    if (!user) return;
+
+    ensureUserProfile(user).catch((error) => {
+      console.error('Error ensuring user profile:', error);
+    });
+
+    const userRef = doc(db, 'users', user.uid);
+    const unsubscribeProfile = onSnapshot(userRef, (snap) => {
+      if (snap.exists()) {
+        setProfile(snap.data() as UserProfile);
+      } else {
+        setProfile(null);
+      }
+      setLoading(false);
+    });
+    return () => unsubscribeProfile();
   }, [user]);
 
+  const logout = async () => {
+    await authLogout();
+    setUser(null);
+    setProfile(null);
+  };
+
   return (
-    <AuthContext.Provider value={{ user, profile, loading, authError }}>
+    <AuthContext.Provider value={{ user, profile, loading, authError, logout }}>
       {children}
     </AuthContext.Provider>
   );

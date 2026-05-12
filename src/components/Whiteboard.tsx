@@ -1,43 +1,51 @@
-import React, { useState, useEffect, useCallback } from 'react';
-import { Tldraw, useEditor } from 'tldraw';
+import React, { useState, useEffect } from 'react';
+import { Tldraw } from 'tldraw';
 import 'tldraw/tldraw.css';
 import { db } from '../lib/firebase';
-import { doc, onSnapshot, updateDoc } from 'firebase/firestore';
+import { doc, onSnapshot } from 'firebase/firestore';
 import { useAuth } from '../AuthContext';
 import { Loader2 } from 'lucide-react';
+import { useYjsStore } from '../hooks/useYjsStore';
 
 interface WhiteboardProps {
   sessionId: string;
 }
 
-import { useYjsStore } from '../hooks/useYjsStore';
-
 export default function Whiteboard({ sessionId }: WhiteboardProps) {
-  const { profile } = useAuth();
+  const { profile, user } = useAuth();
   const [loadingDb, setLoadingDb] = useState(true);
   const [isReadOnly, setIsReadOnly] = useState(false);
 
-  const isAdmin = profile?.role === 'admin' || profile?.email === 'mudzimwapanashe123@gmail.com';
+  const isGlobalAdmin = profile?.role === 'admin' || profile?.email === 'mudzimwapanashe123@gmail.com';
 
   const store = useYjsStore({
     roomId: sessionId,
-    hostUrl: 'wss://y-webrtc-signaling-eu.herokuapp.com'
+    hostUrl: 'wss://signaling.yjs.dev'
   });
 
   useEffect(() => {
-    if (!sessionId) return;
+    if (!sessionId || !user) return;
     const unsub = onSnapshot(doc(db, 'sessions', sessionId), (snap) => {
       if (!snap.exists()) {
-        setIsReadOnly(!isAdmin);
+        setIsReadOnly(false); // Default to collaborative
         setLoadingDb(false);
         return;
       }
       const data = snap.data();
-      setIsReadOnly(data.isLocked && !isAdmin);
+      const isActuallyAdmin = isGlobalAdmin || data.hostUid === user.uid;
+      setIsReadOnly(data.isLocked && !isActuallyAdmin);
       setLoadingDb(false);
     });
     return () => unsub();
-  }, [sessionId, isAdmin]);
+  }, [sessionId, isGlobalAdmin, user]);
+
+  const [editor, setEditor] = useState<any>(null);
+
+  useEffect(() => {
+    if (editor) {
+      editor.updateInstanceState({ isReadonly: isReadOnly });
+    }
+  }, [editor, isReadOnly]);
 
   if (loadingDb || store.status === 'loading') return (
     <div className="h-full w-full flex flex-col items-center justify-center bg-[#05070A] gap-4">
@@ -51,8 +59,8 @@ export default function Whiteboard({ sessionId }: WhiteboardProps) {
       <Tldraw 
         store={store.store} 
         autoFocus 
-        onMount={(editor) => {
-          editor.updateInstanceState({ isReadonly: isReadOnly })
+        onMount={(e) => {
+          setEditor(e);
         }}
       />
     </div>

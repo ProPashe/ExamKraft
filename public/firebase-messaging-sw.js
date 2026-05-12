@@ -7,12 +7,12 @@ importScripts('https://www.gstatic.com/firebasejs/10.7.1/firebase-messaging-comp
 // I will use a placeholder or the common config if I can find it.
 
 firebase.initializeApp({
-  apiKey: "AIzaSy...", // Actual keys should be here or injected
-  authDomain: "examkraft.firebaseapp.com",
-  projectId: "examkraft",
-  storageBucket: "examkraft.appspot.com",
-  messagingSenderId: "123456789",
-  appId: "1:123456789:web:abcdef"
+  apiKey: "AIzaSyDySGIvR5MD-8E4cEsCvSKp8FTXoF34ljw",
+  authDomain: "tutorconnect-493211.firebaseapp.com",
+  projectId: "tutorconnect-493211",
+  storageBucket: "tutorconnect-493211.firebasestorage.app",
+  messagingSenderId: "241417579218",
+  appId: "1:241417579218:web:baaea4c5adadb8413c1b0",
 });
 
 const messaging = firebase.messaging();

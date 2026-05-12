@@ -1,6 +1,18 @@
-import React, { useState, useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
-import { motion, AnimatePresence } from 'motion/react';
+import { db, storage } from '../lib/firebase';
+import { 
+  doc, 
+  updateDoc, 
+  increment, 
+  collection, 
+  addDoc, 
+  serverTimestamp, 
+  onSnapshot,
+  query,
+  orderBy 
+} from 'firebase/firestore';
+import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { 
   Play, 
   FileText, 
@@ -22,24 +34,18 @@ import {
   CheckCircle2,
   Send,
   User,
-  Clock
+  Clock,
+  Paperclip,
+  Mic,
+  RotateCcw,
+  Trash2,
+  Play as PlayIcon
 } from 'lucide-react';
 import { getTopics, completeTopic } from '../services/dbService';
 import { useAuth } from '../AuthContext';
 import confetti from 'canvas-confetti';
 import { cn } from '../lib/utils';
-import { db } from '../lib/firebase';
-import { 
-  doc, 
-  updateDoc, 
-  increment, 
-  collection, 
-  addDoc, 
-  serverTimestamp, 
-  onSnapshot,
-  query,
-  orderBy 
-} from 'firebase/firestore';
+import AudioRecorder from '../components/AudioRecorder';
 
 import BackButton from '../components/BackButton';
 
@@ -49,19 +55,15 @@ export default function TopicView() {
   const navigate = useNavigate();
   
   const [topic, setTopic] = useState<any>(null);
-  const [currentTab, setCurrentTab] = useState<'video' | 'resources' | 'exam' | 'qa'>('video');
+  const [currentTab, setCurrentTab] = useState<'video' | 'exam'>('video');
   const [examStarted, setExamStarted] = useState(false);
   const [examResults, setExamResults] = useState<any>(null);
   const [currentQuestion, setCurrentQuestion] = useState(0);
   const [answers, setAnswers] = useState<Record<number, any>>({});
   const [timeLeft, setTimeLeft] = useState(0);
   const [showExamModal, setShowExamModal] = useState(false);
-  const [showResourcesModal, setShowResourcesModal] = useState(false);
 
-  // Q&A State
-  const [questions, setQuestions] = useState<any[]>([]);
-  const [newQuestion, setNewQuestion] = useState('');
-  const [isSubmittingQA, setIsSubmittingQA] = useState(false);
+  // Exam state logic...
 
   useEffect(() => {
     if (subjectId && topicId) {
@@ -72,38 +74,10 @@ export default function TopicView() {
           setTimeLeft(found.exam.timeLimitMinutes * 60);
         }
       });
-
-      // Listen for Q&A
-      const qaRef = collection(db, 'subjects', subjectId, 'topics', topicId, 'qa');
-      const q = query(qaRef, orderBy('createdAt', 'desc'));
-      const unsubscribe = onSnapshot(q, (snapshot) => {
-        setQuestions(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
-      });
-
-      return () => unsubscribe();
     }
   }, [subjectId, topicId]);
 
-  const handlePostQuestion = async () => {
-    if (!newQuestion.trim() || !user || !profile || !subjectId || !topicId) return;
 
-    setIsSubmittingQA(true);
-    try {
-      await addDoc(collection(db, 'subjects', subjectId, 'topics', topicId, 'qa'), {
-        userId: user.uid,
-        userName: profile.displayName || profile.email,
-        question: newQuestion.trim(),
-        adminReply: null,
-        createdAt: serverTimestamp(),
-        repliedAt: null
-      });
-      setNewQuestion('');
-    } catch (e) {
-      console.error("QA Post Error:", e);
-    } finally {
-      setIsSubmittingQA(false);
-    }
-  };
 
   useEffect(() => {
     let timer: any;
@@ -182,9 +156,7 @@ export default function TopicView() {
           <nav className="flex items-center px-6 border-b border-white/5 bg-black/20 backdrop-blur-md">
             {[
               { id: 'video', label: 'Instruction', icon: Play },
-              { id: 'resources', label: 'Data Banks', icon: FileText },
-              { id: 'exam', label: 'Evaluation', icon: Zap },
-              { id: 'qa', label: 'Relay (Q&A)', icon: MessageSquare }
+              { id: 'exam', label: 'Evaluation', icon: Zap }
             ].map(tab => (
               <button
                 key={tab.id}
@@ -235,35 +207,7 @@ export default function TopicView() {
               </div>
             )}
 
-            {currentTab === 'resources' && (
-              <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
-                <div className="flex justify-between items-center">
-                   <h3 className="text-3xl font-black italic uppercase">Resource <span className="text-emerald-400">Vault</span></h3>
-                </div>
-                <div className="grid md:grid-cols-2 gap-4">
-                   {topic.resources?.length > 0 ? topic.resources.map((res: any, idx: number) => (
-                      <div key={idx} className="p-6 bg-[#0A0C14] rounded-[2rem] border border-white/5 flex items-center justify-between hover:border-emerald-500/30 transition-all group">
-                         <div className="flex items-center gap-4">
-                            <div className="w-12 h-12 rounded-2xl bg-emerald-500/10 flex items-center justify-center">
-                              <FileText size={24} className="text-emerald-400" />
-                            </div>
-                            <div className="flex flex-col">
-                               <span className="text-sm font-bold truncate max-w-[200px] uppercase font-black">{res.name}</span>
-                               <span className="text-[8px] uppercase font-black text-gray-500">Encrypted Data Stream</span>
-                            </div>
-                         </div>
-                         <a href={res.url} target="_blank" rel="noopener noreferrer" className="px-6 py-3 bg-emerald-500 rounded-xl text-white font-black uppercase text-[10px] tracking-widest shadow-lg shadow-emerald-500/20 hover:scale-105 active:scale-95 transition-all">
-                            Download
-                         </a>
-                      </div>
-                   )) : (
-                      <div className="col-span-2 py-32 text-center glass-panel rounded-[3rem] opacity-30 italic font-bold">
-                        No external data banks identified in this sector.
-                      </div>
-                   )}
-                </div>
-              </div>
-            )}
+
 
             {currentTab === 'exam' && (
                <div className="space-y-10 animate-in fade-in slide-in-from-bottom-4 duration-500 text-center py-10 max-w-2xl mx-auto">
@@ -295,88 +239,7 @@ export default function TopicView() {
                </div>
             )}
 
-            {currentTab === 'qa' && (
-              <div className="space-y-10 animate-in fade-in slide-in-from-bottom-4 duration-500">
-                {/* Ask a Question */}
-                <div className="glass-panel p-8 rounded-[2.5rem] bg-[#0A0C14] border-white/5 space-y-6">
-                   <div className="flex items-center justify-between">
-                      <h4 className="text-xs font-black uppercase tracking-widest text-cyan-400">Knowledge Relay</h4>
-                      <div className="flex items-center gap-2">
-                         <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-                         <span className="text-[8px] font-black uppercase text-gray-500">Comm-Link: Active</span>
-                      </div>
-                   </div>
-                   <div className="relative">
-                      <textarea 
-                        value={newQuestion}
-                        onChange={e => setNewQuestion(e.target.value)}
-                        placeholder="Transmit your query to the master curator..."
-                        className="w-full bg-white/2 border border-white/5 p-6 rounded-[1.5rem] text-sm font-bold min-h-[120px] outline-none focus:border-cyan-400 transition-all placeholder:text-gray-700"
-                      />
-                      <button 
-                        onClick={handlePostQuestion}
-                        disabled={isSubmittingQA || !newQuestion.trim()}
-                        className="absolute bottom-4 right-4 px-6 py-3 bg-cyan-500 rounded-xl text-white font-black uppercase text-[8px] tracking-widest flex items-center gap-2 shadow-lg shadow-cyan-500/20 disabled:opacity-50 disabled:grayscale transition-all"
-                      >
-                         {isSubmittingQA ? <Loader2 size={12} className="animate-spin" /> : <><Send size={12} /> Post Query</>}
-                      </button>
-                   </div>
-                </div>
 
-                {/* Conversation Stream */}
-                <div className="space-y-6">
-                   <h5 className="text-[10px] font-black uppercase tracking-widest text-gray-500 flex items-center gap-2">
-                      <Clock size={12} /> Synchronized Intelligence Log
-                   </h5>
-                   
-                   <div className="space-y-4">
-                      {questions.length > 0 ? questions.map((qa) => (
-                        <div key={qa.id} className="space-y-3">
-                           {/* Question */}
-                           <div className="flex items-start gap-4">
-                              <div className="w-10 h-10 rounded-xl bg-white/5 flex items-center justify-center shrink-0">
-                                 <User size={18} className="text-gray-500" />
-                              </div>
-                              <div className="glass-panel p-6 rounded-2xl rounded-tl-none bg-[#0A0C14] border-white/5 flex-1 relative">
-                                 <p className="text-sm font-bold leading-relaxed">{qa.question}</p>
-                                 <div className="mt-3 flex items-center gap-2">
-                                    <span className="text-[8px] font-black uppercase tracking-widest text-gray-600">{qa.userName}</span>
-                                    <span className="w-0.5 h-0.5 rounded-full bg-gray-700" />
-                                    <span className="text-[8px] font-bold text-gray-700">{qa.createdAt ? new Date(qa.createdAt.toDate?.()).toLocaleTimeString() : 'Recent'}</span>
-                                 </div>
-                              </div>
-                           </div>
-
-                           {/* Reply */}
-                           {qa.adminReply ? (
-                              <div className="flex items-start gap-4 flex-row-reverse">
-                                 <div className="w-10 h-10 rounded-xl bg-cyan-500/10 border border-cyan-500/20 flex items-center justify-center shrink-0">
-                                    <Star size={18} className="text-cyan-400" />
-                                 </div>
-                                 <div className="glass-panel p-6 rounded-2xl rounded-tr-none bg-cyan-500/5 border-cyan-500/20 flex-1 relative text-right">
-                                    <p className="text-sm font-bold italic text-cyan-100 leading-relaxed">{qa.adminReply}</p>
-                                    <div className="mt-3 flex items-center gap-2 justify-end">
-                                       <span className="text-[8px] font-bold text-cyan-950">{qa.repliedAt ? new Date(qa.repliedAt.toDate?.()).toLocaleTimeString() : 'Recent'}</span>
-                                       <span className="w-0.5 h-0.5 rounded-full bg-cyan-900" />
-                                       <span className="text-[8px] font-black uppercase tracking-widest text-cyan-400">Master Curator Response</span>
-                                    </div>
-                                 </div>
-                              </div>
-                           ) : (
-                              <div className="pl-14">
-                                 <span className="text-[8px] font-black uppercase tracking-widest text-gray-600 italic">Awaiting response from master stream...</span>
-                              </div>
-                           )}
-                        </div>
-                      )) : (
-                        <div className="py-20 text-center glass-panel rounded-[3rem] border-dashed border-white/10 opacity-20 italic font-bold">
-                           No communication packets detected in local space.
-                        </div>
-                      )}
-                   </div>
-                </div>
-              </div>
-            )}
           </div>
         </div>
 
@@ -403,12 +266,12 @@ export default function TopicView() {
                    <h3 className="text-[10px] font-black text-cyan-400 uppercase tracking-widest">Mastery Status</h3>
                    <Star size={16} className="text-cyan-400 animate-pulse" />
                 </div>
-                <div className="flex items-end justify-between">
-                   <span className="text-4xl font-black italic">{examResults ? '100' : '0'}<span className="text-lg opacity-40">%</span></span>
-                   <span className="text-[8px] font-bold text-gray-500 uppercase tracking-tighter mb-2">Efficiency Rating</span>
-                </div>
-                <div className="h-1 bg-white/5 rounded-full overflow-hidden">
-                   <div className={cn("h-full bg-cyan-400 glow-cyan transition-all duration-1000", examResults ? "w-full" : "w-0")} />
+                 <div className="flex items-end justify-between">
+                    <span className="text-4xl font-black italic">{examResults ? examResults.percentage.toFixed(0) : '0'}<span className="text-lg opacity-40">%</span></span>
+                    <span className="text-[8px] font-bold text-gray-500 uppercase tracking-tighter mb-2">Efficiency Rating</span>
+                 </div>
+                 <div className="h-1 bg-white/5 rounded-full overflow-hidden">
+                    <div className={cn("h-full bg-cyan-400 glow-cyan transition-all duration-1000")} style={{ width: examResults ? `${examResults.percentage}%` : '0%' }} />
                 </div>
              </div>
           </div>
@@ -501,41 +364,7 @@ export default function TopicView() {
                 </div>
               </motion.div>
            </div>
-        )}
-
-        {showResourcesModal && (
-          <div className="fixed inset-0 z-[200] flex items-center justify-center p-6 bg-[#05070A]/95 backdrop-blur-2xl">
-             <motion.div 
-               initial={{ scale: 0.95, opacity: 0 }}
-               animate={{ scale: 1, opacity: 1 }}
-               className="glass-panel w-full max-w-lg rounded-[2.5rem] p-10 border-white/10 space-y-8"
-             >
-                <div className="flex justify-between items-center">
-                   <h3 className="text-2xl font-black italic uppercase">Resource <span className="text-emerald-400">Bank</span></h3>
-                   <button onClick={() => setShowResourcesModal(false)}><X size={24} /></button>
-                </div>
-                <div className="space-y-4 max-h-[40vh] overflow-y-auto pr-2 scrollbar-hide">
-                   {topic.resources?.length > 0 ? topic.resources.map((res: any, idx: number) => (
-                      <div key={idx} className="p-4 bg-white/5 rounded-2xl border border-white/5 flex items-center justify-between hover:border-emerald-500/30 transition-all group">
-                         <div className="flex items-center gap-4">
-                            <FileText size={20} className="text-emerald-400" />
-                            <div className="flex flex-col">
-                               <span className="text-sm font-bold truncate max-w-[200px]">{res.name}</span>
-                               <span className="text-[8px] uppercase font-black text-gray-500">Manual Entry</span>
-                            </div>
-                         </div>
-                         <a href={res.url} target="_blank" rel="noopener noreferrer" className="p-2 bg-emerald-500/10 text-emerald-400 rounded-lg group-hover:bg-emerald-500 group-hover:text-white transition-all">
-                            <Download size={16} />
-                         </a>
-                      </div>
-                   )) : (
-                      <div className="py-10 text-center opacity-30 italic font-bold">No external data banks identified.</div>
-                   )}
-                </div>
-                <button onClick={() => setShowResourcesModal(false)} className="w-full py-4 bg-white/5 rounded-2xl text-[10px] font-black uppercase tracking-widest text-gray-500 hover:text-white transition-all">Close Console</button>
-             </motion.div>
-          </div>
-        )}
+          )}
       </AnimatePresence>
     </div>
   );

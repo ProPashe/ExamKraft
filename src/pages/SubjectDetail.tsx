@@ -39,9 +39,12 @@ export default function SubjectDetail() {
     return prog.status; // unlocked, completed
   };
 
+  const [unlockError, setUnlockError] = useState<string | null>(null);
+
   const handleUnlock = async (topic: any) => {
     if (!user) return;
     setUnlocking(topic.id);
+    setUnlockError(null);
     try {
       const res = await PaymentService.initiatePayment(
         user.uid,
@@ -53,9 +56,12 @@ export default function SubjectDetail() {
       );
       if (res.success && res.redirectUrl) {
          window.location.href = res.redirectUrl;
+      } else {
+        setUnlockError('Payment initiation failed. Please try again.');
+        setUnlocking(null);
       }
     } catch (err: any) {
-      alert("Payment failed: " + err.message);
+      setUnlockError(err.message || 'Payment failed. Please try again.');
       setUnlocking(null);
     }
   };
@@ -106,6 +112,13 @@ export default function SubjectDetail() {
         <h1 className="text-5xl font-black italic uppercase tracking-tighter">Path of <span className="text-cyan-400">Mastery</span></h1>
         <p className="text-slate-500 font-bold uppercase text-[10px] tracking-[0.2em]">Decipher the subjects one node at a time</p>
       </header>
+
+      {unlockError && (
+        <div className="p-4 bg-rose-500/10 border border-rose-500/30 rounded-2xl flex items-center gap-3 text-rose-400">
+          <span className="text-xs font-bold">⚠ {unlockError}</span>
+          <button onClick={() => setUnlockError(null)} className="ml-auto text-rose-400/60 hover:text-rose-400 text-xs font-black">✕</button>
+        </div>
+      )}
 
       <div className="relative flex flex-col items-center py-10 space-y-24">
         {topics.map((topic, index) => {

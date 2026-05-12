@@ -1,8 +1,9 @@
 import { 
-  signInWithPopup,
+  signInWithPopup, 
   signOut, 
   onAuthStateChanged,
-  User as FirebaseUser
+  User as FirebaseUser,
+  getRedirectResult
 } from 'firebase/auth';
 import { 
   doc, 
@@ -28,14 +29,15 @@ export interface UserProfile {
   createdAt: any;
 }
 
-const createOrUpdateProfile = async (user: FirebaseUser) => {
+export const ensureUserProfile = async (user: FirebaseUser) => {
+  if (!user) return;
+
   const userRef = doc(db, 'users', user.uid);
   const userSnap = await getDoc(userRef);
-  
-  if (!userSnap.exists()) {
-    const adminEmail = (import.meta as any).env.VITE_ADMIN_EMAIL || 'mudzimwapanashe123@gmail.com';
-    const role = user.email === adminEmail ? 'admin' : 'student';
+  const adminEmail = (import.meta as any).env.VITE_ADMIN_EMAIL || 'mudzimwapanashe123@gmail.com';
+  const role = user.email === adminEmail ? 'admin' : 'student';
 
+  if (!userSnap.exists()) {
     const newUser: UserProfile = {
       uid: user.uid,
       displayName: user.displayName,
@@ -50,8 +52,9 @@ const createOrUpdateProfile = async (user: FirebaseUser) => {
       badges: [],
       createdAt: serverTimestamp(),
     };
+
     await setDoc(userRef, newUser);
-    
+
     if (role === 'admin') {
       await setDoc(doc(db, 'admins', user.uid), { active: true, email: user.email });
     }
@@ -60,27 +63,39 @@ const createOrUpdateProfile = async (user: FirebaseUser) => {
   }
 };
 
-// No-op — kept for AuthContext compatibility (was used for redirect flow)
 export const handleRedirectResult = async (): Promise<string | null> => {
-  return null;
+  try {
+    const result = await getRedirectResult(auth);
+    if (result?.user) {
+      await ensureUserProfile(result.user);
+    }
+    return null;
+  } catch (error: any) {
+    console.error('[Auth] Redirect error:', error);
+    if (error.code === 'auth/unauthorized-domain') {
+       const host = window.location.hostname;
+       return `Sign-in is not authorized for "${host}". Ask your admin to add this domain in Firebase Console → Authentication → Settings → Authorized Domains.`;
+    }
+    return error.message;
+  }
 };
 
 export const loginWithGoogle = async (): Promise<string | null> => {
   try {
     const result = await signInWithPopup(auth, googleProvider);
-    await createOrUpdateProfile(result.user);
-    return null; // success
+    await ensureUserProfile(result.user);
+    return null;
   } catch (error: any) {
     console.error('Login error:', error);
     if (error.code === 'auth/popup-blocked') {
-      return 'Popup was blocked by your browser. Please allow popups for localhost:3000 and try again.';
+      return 'Popup was blocked by your browser. Please allow popups and try again.';
     }
     if (error.code === 'auth/unauthorized-domain') {
       const host = window.location.hostname;
       return `Sign-in is not authorized for "${host}". Ask your admin to add this domain in Firebase Console → Authentication → Settings → Authorized Domains.`;
     }
     if (error.code === 'auth/popup-closed-by-user') {
-      return null; // user dismissed it — not a real error
+      return null;
     }
     return error.message || 'Sign-in failed. Please try again.';
   }

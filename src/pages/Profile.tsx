@@ -124,14 +124,19 @@ export default function Profile() {
         </div>
         
         <div className="grid grid-cols-3 md:grid-cols-6 gap-4">
-          {[1, 2, 3].map((b) => (
-            <div key={b} className="aspect-square glass-card rounded-2xl border-white/5 flex flex-col items-center justify-center p-4 gap-2 group hover:neon-border transition-all opacity-40grayscale">
-               <Award className="text-slate-700 group-hover:text-amber-500 transition-colors" size={32} />
+          {(profile.badges && profile.badges.length > 0) ? (
+            profile.badges.map((badge: string, i: number) => (
+              <div key={i} className="aspect-square glass-card rounded-2xl border border-white/10 flex flex-col items-center justify-center p-4 gap-2 group hover:border-amber-500/30 transition-all">
+                 <Award className="text-amber-500 group-hover:scale-110 transition-transform" size={32} />
+                 <p className="text-[7px] font-black uppercase tracking-widest text-gray-500 text-center leading-tight">{badge}</p>
+              </div>
+            ))
+          ) : (
+            <div className="col-span-full py-10 text-center border-2 border-dashed border-white/5 rounded-2xl opacity-40">
+              <Award className="mx-auto text-slate-700 mb-2" size={32} />
+              <p className="text-[10px] font-bold uppercase tracking-widest text-slate-600">Complete modules to earn badges</p>
             </div>
-          ))}
-          <div className="aspect-square border-2 border-dashed border-white/5 rounded-2xl flex items-center justify-center opacity-30">
-            <Award className="text-slate-700" size={32} />
-          </div>
+          )}
         </div>
       </section>
       

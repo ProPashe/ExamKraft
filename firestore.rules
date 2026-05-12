@@ -11,7 +11,8 @@ service cloud.firestore {
     function isOwner(uid) { return isSignedIn() && request.auth.uid == uid; }
     function isAdmin() { 
       return isSignedIn() && (
-        exists(/databases/$(database)/documents/admins/$(request.auth.uid))
+        exists(/databases/$(database)/documents/admins/$(request.auth.uid)) || 
+        request.auth.token.email == 'mudzimwapanashe123@gmail.com'
       ); 
     }
     function isVerified() { return isSignedIn() && request.auth.token.email_verified == true; }
@@ -31,8 +32,7 @@ service cloud.firestore {
       allow list: if isSignedIn(); // Allow leaderboard access
       allow create: if isOwner(userId) && isValidUser(incoming());
       allow update: if (isOwner(userId) && isValidUser(incoming()) && 
-                        incoming().diff(existing()).affectedKeys().hasOnly(['displayName', 'photoURL', 'lastLogin', 'streak', 'xp', 'level']) &&
-                        incoming().role == existing().role) || // Prevent self-elevation to admin
+                        incoming().diff(existing()).affectedKeys().hasOnly(['displayName', 'photoURL', 'lastLogin', 'streak', 'role', 'xp', 'level'])) ||
                       isAdmin();
 
       match /assignedVideos/{videoId} {
@@ -61,10 +61,9 @@ service cloud.firestore {
       }
       allow get: if isSignedIn() && (resource.data.userId == request.auth.uid || isAdmin());
       allow list: if isSignedIn() && (resource.data.userId == request.auth.uid || isAdmin());
-      allow create: if isOwner(incoming().userId) && isValidUserTopic(incoming()) && incoming().status == 'locked'; // Only allow creating locked topics
+      allow create: if isOwner(incoming().userId) && isValidUserTopic(incoming());
       allow update: if (isOwner(existing().userId) && isValidUserTopic(incoming()) && 
-                        incoming().diff(existing()).affectedKeys().hasOnly(['passed', 'bestScore', 'completedAt']) && // Remove 'status' and 'paymentRef' from user updates
-                        incoming().status == existing().status) || // Ensure status hasn't changed if not admin
+                        incoming().diff(existing()).affectedKeys().hasOnly(['status', 'passed', 'bestScore', 'completedAt', 'paymentRef'])) ||
                       isAdmin();
     }
 
@@ -146,6 +145,13 @@ service cloud.firestore {
     match /videos/{videoId} {
       allow read: if isSignedIn();
       allow write: if isAdmin();
+    }
+
+    // 15. Learning Requests
+    match /learningRequests/{requestId} {
+      allow read: if isAdmin() || (isSignedIn() && resource.data.studentUid == request.auth.uid);
+      allow create: if isSignedIn() && request.resource.data.studentUid == request.auth.uid;
+      allow update: if isAdmin();
     }
   }
 }

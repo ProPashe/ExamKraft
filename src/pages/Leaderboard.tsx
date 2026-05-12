@@ -4,22 +4,36 @@ import { Trophy, Medal, Star, Target, Search } from 'lucide-react';
 import { collection, query, orderBy, limit, getDocs } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import { cn, formatXP } from '../lib/utils';
-
+import { useAuth } from '../AuthContext';
 import BackButton from '../components/BackButton';
 
 export default function Leaderboard() {
+  const { user } = useAuth();
   const [leaders, setLeaders] = useState<any[]>([]);
+  const [myRank, setMyRank] = useState<number | null>(null);
+  const [myEntry, setMyEntry] = useState<any>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     const fetchLeaders = async () => {
-      const q = query(collection(db, 'users'), orderBy('xp', 'desc'), limit(10));
+      const q = query(collection(db, 'users'), orderBy('xp', 'desc'), limit(50));
       const snap = await getDocs(q);
-      setLeaders(snap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+      const all = snap.docs.map((doc, i) => ({ id: doc.id, rank: i + 1, ...doc.data() }));
+      setLeaders(all.slice(0, 10));
+      if (user) {
+        const me = all.find(u => u.id === user.uid);
+        if (me) {
+          setMyRank(me.rank);
+          setMyEntry(me);
+        } else {
+          // outside top 50 — show rank as 50+
+          setMyRank(51);
+        }
+      }
       setLoading(false);
     };
     fetchLeaders();
-  }, []);
+  }, [user]);
 
   return (
     <div className="p-6 md:p-10 space-y-10 max-w-4xl mx-auto">
@@ -31,6 +45,23 @@ export default function Leaderboard() {
         <h1 className="text-5xl font-black tracking-tight">Top Scholars</h1>
         <p className="text-slate-500 max-w-md mx-auto">The most dedicated minds striving for academic excellence across Zimbabwe & beyond.</p>
       </header>
+
+      {/* Your Rank Card */}
+      {!loading && myEntry && (
+        <div className="glass-panel p-5 rounded-2xl border border-cyan-500/20 bg-cyan-500/[0.04] flex items-center gap-5">
+          <div className="w-12 h-12 rounded-full border-2 border-cyan-400 overflow-hidden flex-shrink-0">
+            <img src={myEntry.photoURL || `https://api.dicebear.com/7.x/avataaars/svg?seed=${myEntry.uid}`} alt="You" className="w-full h-full object-cover" />
+          </div>
+          <div className="flex-1 min-w-0">
+            <p className="text-[9px] font-black uppercase tracking-[0.3em] text-cyan-400 mb-0.5">Your Standing</p>
+            <p className="font-black text-white uppercase tracking-tight italic truncate">{myEntry.displayName}</p>
+          </div>
+          <div className="text-right flex-shrink-0">
+            <p className="text-3xl font-black italic text-cyan-400">#{myRank === 51 ? '50+' : myRank}</p>
+            <p className="text-[9px] font-bold text-gray-500 uppercase tracking-widest">{formatXP(myEntry.xp)} XP</p>
+          </div>
+        </div>
+      )}
 
       {/* Podium */}
       {!loading && leaders.length >= 3 && (

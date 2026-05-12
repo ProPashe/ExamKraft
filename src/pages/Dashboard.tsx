@@ -3,7 +3,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { useAuth } from '../AuthContext';
 import { getSubjects, getUserTopics } from '../services/dbService';
 import { db, storage } from '../lib/firebase';
-import { collection, query, orderBy, limit, onSnapshot, where, addDoc, serverTimestamp, doc } from 'firebase/firestore';
+import { collection, query, orderBy, onSnapshot, where, addDoc, serverTimestamp, doc } from 'firebase/firestore';
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { 
   Zap, 
@@ -30,18 +30,42 @@ import {
 } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { cn, calculateLevel, getProgressToNextLevel, formatXP } from '../lib/utils';
-import Admin from './Admin';
 
 export default function Dashboard() {
   const { user, profile } = useAuth();
   const [subjects, setSubjects] = useState<any[]>([]);
   const [userTopics, setUserTopics] = useState<any[]>([]);
-  const [announcements, setAnnouncements] = useState<any[]>([]);
+
   const [assignments, setAssignments] = useState<any[]>([]);
-  const [submissions, setSubmissions] = useState<any[]>([]);
   const [assignedVideos, setAssignedVideos] = useState<any[]>([]);
   const [activeSession, setActiveSession] = useState<any>(null);
   const [loading, setLoading] = useState(true);
+  const [learningRequests, setLearningRequests] = useState<any[]>([]);
+
+  // Booking State
+  const [showBookingModal, setShowBookingModal] = useState(false);
+  const [selectedSubjectForBooking, setSelectedSubjectForBooking] = useState<any>(null);
+  const [bookingForm, setBookingForm] = useState({
+    topic: '',
+    method: 'Platform',
+    amount: '',
+    name: '',
+    phone: '',
+    email: ''
+  });
+  const [bookingFile, setBookingFile] = useState<File | null>(null);
+  const [isBooking, setIsBooking] = useState(false);
+
+  // Sync profile into booking form once loaded
+  useEffect(() => {
+    if (profile) {
+      setBookingForm(prev => ({
+        ...prev,
+        name: prev.name || profile.displayName || '',
+        email: profile.email || ''
+      }));
+    }
+  }, [profile]);
 
   // Submission State
   const [selectedAssignment, setSelectedAssignment] = useState<any>(null);
@@ -83,6 +107,45 @@ export default function Dashboard() {
     }
   };
 
+  const handleBookingSubmit = async () => {
+    if (!selectedSubjectForBooking || !user) return;
+    setIsBooking(true);
+    try {
+      let fileUrl = '';
+      if (bookingFile) {
+        const sRef = ref(storage, `requests/${user.uid}/${Date.now()}_${bookingFile.name}`);
+        await uploadBytes(sRef, bookingFile);
+        fileUrl = await getDownloadURL(sRef);
+      }
+
+      const requestData = {
+        studentUid: user.uid,
+        subjectId: selectedSubjectForBooking.id,
+        subjectName: selectedSubjectForBooking.name,
+        ...bookingForm,
+        fileUrl,
+        status: 'pending',
+        createdAt: serverTimestamp()
+      };
+
+      await addDoc(collection(db, 'learningRequests'), requestData);
+
+      // WhatsApp Message
+      const waMessage = `*New Learning Request*\n\n*Subject:* ${selectedSubjectForBooking.name}\n*Topic:* ${bookingForm.topic}\n*Method:* ${bookingForm.method}\n*Proposed Amount:* $${bookingForm.amount}\n*Student:* ${bookingForm.name}\n*Phone:* ${bookingForm.phone}\n*Gmail:* ${bookingForm.email}\n${fileUrl ? `*File:* ${fileUrl}` : ''}`;
+      
+      const waUrl = `https://wa.me/263788923630?text=${encodeURIComponent(waMessage)}`;
+      window.location.assign(waUrl);
+
+      setShowBookingModal(false);
+      setBookingForm({ ...bookingForm, topic: '', amount: '', phone: '' });
+      setBookingFile(null);
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setIsBooking(false);
+    }
+  };
+
   useEffect(() => {
     if (user && !isAdmin) {
       Promise.all([
@@ -93,11 +156,7 @@ export default function Dashboard() {
         setUserTopics(topics);
       });
 
-      // Listen for latest announcements
-      const announceQ = query(collection(db, 'announcements'), orderBy('createdAt', 'desc'), limit(3));
-      const unsubAnnounce = onSnapshot(announceQ, (snap) => {
-        setAnnouncements(snap.docs.map(d => ({ id: d.id, ...d.data() })));
-      });
+
 
       // Listen for Assignments
       const assignQ = query(collection(db, 'assignments'), where('assignedIds', 'array-contains', user.uid), orderBy('createdAt', 'desc'));
@@ -106,16 +165,16 @@ export default function Dashboard() {
         setLoading(false);
       });
 
-      // Listen for Feedback (Submissions)
-      const subQ = query(collection(db, 'submissions'), where('studentUid', '==', user.uid), where('status', '==', 'returned'), orderBy('markedAt', 'desc'), limit(5));
-      const unsubSub = onSnapshot(subQ, (snap) => {
-        setSubmissions(snap.docs.map(d => ({ id: d.id, ...d.data() })));
-      });
-
       // Listen for Assigned Videos
       const videosQ = query(collection(db, 'users', user.uid, 'assignedVideos'), orderBy('assignedAt', 'desc'));
       const unsubVideos = onSnapshot(videosQ, (snap) => {
         setAssignedVideos(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+      });
+
+      // Listen for Learning Requests
+      const reqQ = query(collection(db, 'learningRequests'), where('studentUid', '==', user.uid), orderBy('createdAt', 'desc'));
+      const unsubReq = onSnapshot(reqQ, (snap) => {
+        setLearningRequests(snap.docs.map(d => ({ id: d.id, ...d.data() })));
       });
 
       // Listen for Active Whiteboard Session
@@ -133,9 +192,8 @@ export default function Dashboard() {
       });
 
       return () => {
-        unsubAnnounce();
+
         unsubAssign();
-        unsubSub();
         unsubVideos();
         unsubSession();
       };
@@ -187,45 +245,58 @@ export default function Dashboard() {
         </div>
       </header>
 
-      {/* Announcements */}
-      {announcements.length > 0 && (
-        <section className="space-y-6">
-          <div className="flex items-center justify-between px-2">
-            <h3 className="text-xs font-bold uppercase tracking-[0.3em] text-gray-500 flex items-center gap-2">
-               <Megaphone size={14} className="text-blue-400" /> Announcements
-            </h3>
-            <Link to="/announcements" className="text-[10px] font-bold uppercase tracking-widest text-cyan-400/60 hover:text-cyan-400 transition-all underline underline-offset-4">View History</Link>
-          </div>
-          <div className="grid gap-4">
-            {announcements.map((ann, i) => (
-              <motion.div 
-                key={ann.id}
-                initial={{ y: 20, opacity: 0 }}
-                animate={{ y: 0, opacity: 1 }}
-                transition={{ delay: i * 0.1 }}
-                className="glass-panel p-6 rounded-[2rem] border-white/5 bg-gradient-to-br from-white/[0.03] to-transparent relative overflow-hidden group"
-              >
-                <div className="flex items-start gap-5 relative z-10">
-                   <div className="shrink-0 w-12 h-12 rounded-2xl bg-blue-500/10 flex items-center justify-center text-blue-400 border border-blue-500/20 group-hover:scale-110 transition-transform">
-                      <Bell size={22} />
-                   </div>
-                   <div className="space-y-2">
-                      <h4 className="text-lg font-bold tracking-tight text-white/90">{ann.title}</h4>
-                      <p className="text-sm text-gray-400 leading-relaxed font-medium line-clamp-2">{ann.message}</p>
-                      <div className="flex items-center gap-3 pt-2">
-                         <span className="text-[9px] font-bold uppercase tracking-[0.2em] text-blue-400/50">
-                           {ann.createdAt?.toDate ? new Date(ann.createdAt.toDate()).toLocaleDateString('en-GB', { day: '2-digit', month: 'short' }) : 'Recent'}
-                         </span>
-                         <div className="w-1 h-1 rounded-full bg-white/10" />
-                         <span className="text-[9px] font-bold uppercase tracking-[0.2em] text-gray-600">Administrative Node</span>
-                      </div>
-                   </div>
-                </div>
-              </motion.div>
-            ))}
-          </div>
-        </section>
-      )}
+      {/* Curriculum Sectors */}
+      <section className="space-y-10">
+        {['Cambridge', 'ZIMSEC'].map(syllabus => {
+          const syllabusSubjects = subjects.filter(s => s.syllabus === syllabus);
+
+          return (
+            <div key={syllabus} className="space-y-6">
+              <div className="flex items-center gap-4 px-2">
+                <h3 className={cn(
+                  "text-[10px] font-black uppercase tracking-[0.4em]",
+                  syllabus === 'Cambridge' ? "text-cyan-400" : "text-emerald-400"
+                )}>{syllabus} <span className="opacity-40 font-medium">Sectors</span></h3>
+                <div className="h-px flex-1 bg-white/5" />
+              </div>
+              
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                {syllabusSubjects.length > 0 ? syllabusSubjects.map(subject => (
+                    <div 
+                      key={subject.id}
+                      className="glass-card rounded-[2rem] p-5 flex items-center gap-4 group hover:border-cyan-400/30 transition-all border border-white/5"
+                    >
+                      <Link to={`/discover/${subject.id}`} className="flex items-center gap-4 flex-1 min-w-0">
+                        <div className="w-14 h-14 bg-white/5 rounded-2xl flex items-center justify-center border border-white/5 group-hover:scale-110 transition-all text-2xl flex-shrink-0">
+                          {subject.icon || '📚'}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2 mb-1">
+                            <span className="text-[8px] font-bold text-gray-500 uppercase tracking-widest">{subject.syllabus}</span>
+                          </div>
+                          <h4 className="font-bold text-white/90 group-hover:text-cyan-400 transition-colors uppercase tracking-tight truncate">{subject.name}</h4>
+                          <p className="text-[8px] font-bold text-gray-500/60 uppercase tracking-widest mt-1">Browse Topics</p>
+                        </div>
+                      </Link>
+                      <button
+                        onClick={() => { setSelectedSubjectForBooking(subject); setShowBookingModal(true); }}
+                        className="flex-shrink-0 px-3 py-2 bg-cyan-400/10 hover:bg-cyan-400/20 border border-cyan-400/20 rounded-xl text-[8px] font-black uppercase tracking-widest text-cyan-400 transition-all hover:scale-105 active:scale-95 whitespace-nowrap"
+                      >
+                        Book
+                      </button>
+                    </div>
+                )) : (
+                  <div className="col-span-full py-12 glass-panel rounded-[2rem] text-center border-dashed border-white/10 opacity-30">
+                    <p className="text-[9px] font-bold uppercase tracking-widest">No modules initialized in this sector</p>
+                  </div>
+                )}
+              </div>
+            </div>
+          );
+        })}
+      </section>
+
+
 
       {/* Level Card */}
       <section className="glass-panel rounded-[2.5rem] p-10 relative overflow-hidden border-cyan-500/20 shadow-2xl shadow-cyan-500/5">
@@ -338,71 +409,34 @@ export default function Dashboard() {
         </section>
       </div>
 
-      <div className="grid lg:grid-cols-2 gap-8">
-        {/* Current Study */}
-        <section className="space-y-6">
-          <h3 className="text-xs font-bold uppercase tracking-[0.3em] text-gray-500 flex items-center gap-2 px-2">
-            <Target size={14} className="text-blue-500" /> Active Curriculums
-          </h3>
-          <div className="grid gap-3">
-            {enrolledSubjects.length > 0 ? enrolledSubjects.slice(0, 3).map((subject) => (
-              <Link 
-                key={subject.id} 
-                to={`/discover/${subject.id}`}
-                className="glass-card rounded-[2rem] p-5 flex items-center gap-5 group"
-              >
-                <div className="w-14 h-14 bg-white/5 rounded-2xl flex items-center justify-center border border-white/5 group-hover:border-blue-500/30 transition-all">
-                  <Library className="text-blue-400 group-hover:scale-110 transition-all" size={24} />
-                </div>
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2 mb-1">
-                     <span className="text-[8px] font-bold text-gray-500 uppercase tracking-widest">{subject.syllabus}</span>
-                     <div className="w-1 h-1 rounded-full bg-gray-700" />
-                     <span className="text-[8px] font-bold text-blue-400/60 uppercase tracking-widest">{subject.level}</span>
-                  </div>
-                  <h4 className="font-bold text-white/90 group-hover:text-blue-400 transition-colors uppercase">{subject.name}</h4>
-                </div>
-                <div className="w-10 h-10 rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 group-hover:translate-x-0 -translate-x-2 transition-all text-blue-400">
-                   <ChevronRight size={20} />
-                </div>
-              </Link>
-            )) : (
-              <div className="py-12 glass-panel rounded-[2rem] text-center border-dashed border-white/10 opacity-40">
-                <p className="text-[10px] font-bold uppercase tracking-[0.3em]">No subjects initialized</p>
-              </div>
-            )}
-          </div>
-        </section>
-
-        {/* Activity & Recognition */}
-        <section className="space-y-6">
-          <h3 className="text-xs font-bold uppercase tracking-[0.3em] text-gray-500 flex items-center gap-2 px-2">
-            <Award size={14} className="text-amber-500" /> Recent Accomplishments
-          </h3>
-          <div className="glass-panel p-8 rounded-[2.5rem] border-white/5 space-y-4 min-h-[200px]">
-             {userTopics.length > 0 ? (
-               <div className="space-y-3">
-                 {userTopics.slice(0, 4).map((ut, i) => (
-                   <div key={i} className="flex items-center justify-between p-4 bg-white/[0.02] border border-white/5 rounded-2xl hover:bg-white/[0.04] transition-all">
-                     <div className="flex items-center gap-3">
-                        <div className="w-2 h-2 rounded-full bg-amber-500 shadow-[0_0_8px_rgba(245,158,11,0.4)]" />
-                        <span className="text-[11px] font-bold text-white/80 uppercase tracking-wider">Node Mastery Achieved</span>
-                     </div>
-                     <span className="text-[9px] font-black text-amber-500 uppercase tracking-widest">Validated</span>
+      {/* Activity & Recognition */}
+      <section className="space-y-6">
+        <h3 className="text-xs font-bold uppercase tracking-[0.3em] text-gray-500 flex items-center gap-2 px-2">
+          <Award size={14} className="text-amber-500" /> Recent Accomplishments
+        </h3>
+        <div className="glass-panel p-8 rounded-[2.5rem] border-white/5 space-y-4 min-h-[200px]">
+           {userTopics.length > 0 ? (
+             <div className="space-y-3">
+               {userTopics.slice(0, 4).map((ut, i) => (
+                 <div key={i} className="flex items-center justify-between p-4 bg-white/[0.02] border border-white/5 rounded-2xl hover:bg-white/[0.04] transition-all">
+                   <div className="flex items-center gap-3">
+                      <div className="w-2 h-2 rounded-full bg-amber-500 shadow-[0_0_8px_rgba(245,158,11,0.4)]" />
+                      <span className="text-[11px] font-bold text-white/80 uppercase tracking-wider">Node Mastery Achieved</span>
                    </div>
-                 ))}
-               </div>
-             ) : (
-               <div className="flex flex-col items-center justify-center h-full gap-5 py-8 opacity-40">
-                  <div className="p-4 bg-white/5 rounded-full">
-                     <RotateCcw size={24} className="text-gray-500" />
-                  </div>
-                  <p className="text-[9px] font-bold uppercase tracking-[0.3em] text-center max-w-[200px] leading-relaxed">Awaiting neural activity to populate achievements</p>
-               </div>
-             )}
-          </div>
-        </section>
-      </div>
+                   <span className="text-[9px] font-black text-amber-500 uppercase tracking-widest">Validated</span>
+                 </div>
+               ))}
+             </div>
+           ) : (
+             <div className="flex flex-col items-center justify-center h-full gap-5 py-8 opacity-40">
+                <div className="p-4 bg-white/5 rounded-full">
+                   <RotateCcw size={24} className="text-gray-500" />
+                </div>
+                <p className="text-[9px] font-bold uppercase tracking-[0.3em] text-center max-w-[200px] leading-relaxed">Awaiting neural activity to populate achievements</p>
+             </div>
+           )}
+        </div>
+      </section>
 
       {/* Teaching Hub: Assignments & Feedback */}
       <div className="grid lg:grid-cols-2 gap-8">
@@ -431,37 +465,6 @@ export default function Dashboard() {
                {assignments.length === 0 && (
                  <div className="py-12 glass-panel rounded-[2rem] border-dashed border-white/10 text-center opacity-40">
                     <p className="text-[10px] font-bold uppercase tracking-widest">No pending work found</p>
-                 </div>
-               )}
-            </div>
-         </section>
-
-         {/* Instructor Feedback */}
-         <section className="space-y-6">
-            <h3 className="text-xs font-bold uppercase tracking-[0.3em] text-gray-500 flex items-center gap-2 px-2">
-               <MessageSquare size={14} className="text-purple-500" /> Terminal Feedback
-            </h3>
-            <div className="grid gap-3">
-               {submissions.map(s => (
-                 <div key={s.id} className="glass-panel p-6 rounded-[2rem] border-purple-500/10 bg-purple-500/[0.02] group hover:border-purple-500/30 transition-all">
-                    <div className="flex justify-between items-start mb-4">
-                       <h4 className="font-bold text-white/90 group-hover:text-purple-400 transition-colors uppercase tracking-tight">{s.topicName}</h4>
-                       <div className="px-3 py-1 bg-purple-500/20 text-purple-400 border border-purple-500/30 rounded-lg font-black text-[10px] uppercase tracking-tighter">
-                          {s.grade}% Rating
-                       </div>
-                    </div>
-                    <div className="p-4 bg-white/5 rounded-2xl relative">
-                       <p className="text-[11px] text-gray-300 leading-relaxed font-medium italic italic">"{s.feedback}"</p>
-                       <div className="absolute top-0 right-4 -translate-y-1/2 px-2 bg-[#020408] text-[8px] font-black text-purple-400 uppercase tracking-[0.2em]">Curator Review</div>
-                    </div>
-                    <div className="mt-4 flex items-center gap-2 px-2">
-                       <span className="text-[8px] font-bold text-gray-600 uppercase tracking-widest">Validated Timestamp: {s.markedAt?.toDate ? new Date(s.markedAt.toDate()).toLocaleDateString() : 'Recent'}</span>
-                    </div>
-                 </div>
-               ))}
-               {submissions.length === 0 && (
-                 <div className="py-12 glass-panel rounded-[2rem] border-dashed border-white/10 text-center opacity-40">
-                    <p className="text-[10px] font-bold uppercase tracking-widest">No evaluation history available</p>
                  </div>
                )}
             </div>
@@ -534,6 +537,149 @@ export default function Dashboard() {
           </div>
         )}
       </AnimatePresence>
+      {/* Booking Modal */}
+      <AnimatePresence>
+        {showBookingModal && selectedSubjectForBooking && (
+          <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
+            <motion.div 
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setShowBookingModal(false)}
+              className="absolute inset-0 bg-[#05070A]/80 backdrop-blur-sm"
+            />
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.9, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.9, y: 20 }}
+              className="relative w-full max-w-lg bg-[#0A0C14] border border-white/10 rounded-[2.5rem] shadow-2xl overflow-hidden"
+            >
+              <div className="p-8 space-y-6">
+                 <div className="flex justify-between items-start">
+                    <div>
+                       <h3 className="text-2xl font-black italic uppercase tracking-tighter text-white">Book <span className="text-cyan-400">{selectedSubjectForBooking.name}</span></h3>
+                       <p className="text-[10px] font-bold text-gray-500 uppercase tracking-[0.3em] mt-2">Initialize specialized session</p>
+                    </div>
+                    <button onClick={() => setShowBookingModal(false)} className="p-2 hover:bg-white/5 rounded-full transition-colors text-gray-500"><X size={20} /></button>
+                 </div>
+
+                 <div className="space-y-4 max-h-[60vh] overflow-y-auto pr-2 scrollbar-hide">
+                    <div className="space-y-2">
+                       <label className="text-[10px] font-black uppercase tracking-widest text-gray-500 ml-1">Learning Target (Topic)</label>
+                       <textarea 
+                         placeholder="What specific topic do you want to master?"
+                         className="w-full bg-white/5 border border-white/10 rounded-2xl p-4 text-sm text-white placeholder:text-gray-700 outline-none focus:border-cyan-400/30 transition-all min-h-[100px]"
+                         value={bookingForm.topic}
+                         onChange={e => setBookingForm({...bookingForm, topic: e.target.value})}
+                       />
+                    </div>
+
+                    <div className="space-y-2">
+                       <label className="text-[10px] font-black uppercase tracking-widest text-gray-500 ml-1">Problem / Question Paper (Optional)</label>
+                       <div className="flex items-center gap-4 p-4 bg-white/5 border border-white/10 rounded-2xl">
+                          <Paperclip size={20} className="text-cyan-400" />
+                          <input 
+                            type="file" 
+                            className="text-xs text-gray-500 file:bg-transparent file:border-none file:text-cyan-400 file:font-black file:uppercase file:tracking-widest file:mr-4 file:cursor-pointer"
+                            onChange={e => setBookingFile(e.target.files ? e.target.files[0] : null)}
+                          />
+                       </div>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-4">
+                       <div className="space-y-2">
+                          <label className="text-[10px] font-black uppercase tracking-widest text-gray-500 ml-1">Method</label>
+                          <select 
+                            className="w-full bg-white/5 border border-white/10 rounded-2xl p-4 text-sm text-white outline-none focus:border-cyan-400/30"
+                            value={bookingForm.method}
+                            onChange={e => setBookingForm({...bookingForm, method: e.target.value})}
+                          >
+                             <option value="WhatsApp" className="bg-[#0A0C14]">WhatsApp</option>
+                             <option value="Platform" className="bg-[#0A0C14]">This Platform</option>
+                          </select>
+                       </div>
+                       <div className="space-y-2">
+                          <label className="text-[10px] font-black uppercase tracking-widest text-gray-500 ml-1">Amount ($)</label>
+                          <input 
+                            type="number"
+                            placeholder="Amount"
+                            className="w-full bg-white/5 border border-white/10 rounded-2xl p-4 text-sm text-white outline-none focus:border-cyan-400/30"
+                            value={bookingForm.amount}
+                            onChange={e => setBookingForm({...bookingForm, amount: e.target.value})}
+                          />
+                       </div>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-4">
+                       <div className="space-y-2">
+                          <label className="text-[10px] font-black uppercase tracking-widest text-gray-500 ml-1">Phone Number</label>
+                          <input 
+                            type="text"
+                            placeholder="+263..."
+                            className="w-full bg-white/5 border border-white/10 rounded-2xl p-4 text-sm text-white outline-none focus:border-cyan-400/30"
+                            value={bookingForm.phone}
+                            onChange={e => setBookingForm({...bookingForm, phone: e.target.value})}
+                          />
+                       </div>
+                       <div className="space-y-2">
+                          <label className="text-[10px] font-black uppercase tracking-widest text-gray-500 ml-1">Gmail Address</label>
+                          <input 
+                            type="email"
+                            className="w-full bg-white/5 border border-white/10 rounded-2xl p-4 text-sm text-white/50 cursor-not-allowed outline-none"
+                            value={bookingForm.email}
+                            disabled
+                          />
+                       </div>
+                    </div>
+                 </div>
+
+                 <button 
+                   onClick={handleBookingSubmit}
+                   disabled={isBooking || !bookingForm.topic || !bookingForm.amount || !bookingForm.phone}
+                   className="w-full py-5 bg-cyan-400 rounded-2xl text-black font-black uppercase italic tracking-[0.3em] text-xs shadow-xl shadow-cyan-400/20 hover:scale-[1.02] active:scale-95 transition-all disabled:opacity-50"
+                 >
+                    {isBooking ? 'Processing Neural Request...' : 'Send Learning Request'}
+                 </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Your Requests Section */}
+      {learningRequests.length > 0 && (
+        <section className="mt-12 space-y-6">
+           <h3 className="text-xs font-bold uppercase tracking-[0.3em] text-gray-500 flex items-center gap-2 px-2">
+              <Star size={14} className="text-cyan-400" /> Pending Synchronizations
+           </h3>
+           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+              {learningRequests.map(req => (
+                <div key={req.id} className="glass-panel p-6 rounded-[2rem] border-white/5 space-y-4">
+                   <div className="flex justify-between items-start">
+                      <div>
+                         <h4 className="font-bold text-white uppercase tracking-tight">{req.subjectName}</h4>
+                         <p className="text-[8px] font-bold text-gray-500 uppercase tracking-widest mt-1">Requested: {new Date(req.createdAt?.toDate()).toLocaleDateString()}</p>
+                      </div>
+                      <div className={cn(
+                        "px-3 py-1 rounded-full text-[8px] font-black uppercase tracking-widest",
+                        req.status === 'accepted' ? "bg-emerald-500/10 text-emerald-400 border border-emerald-500/20" : "bg-amber-500/10 text-amber-400 border border-amber-500/20 animate-pulse"
+                      )}>
+                        {req.status}
+                      </div>
+                   </div>
+                   <p className="text-[10px] text-gray-400 line-clamp-2 italic">"{req.topic}"</p>
+                   {req.status === 'accepted' && (
+                     <div className="pt-2">
+                        <p className="text-[9px] font-black text-emerald-400 uppercase tracking-widest flex items-center gap-2">
+                           <Zap size={10} fill="currentColor" /> Curator has accepted!
+                        </p>
+                     </div>
+                   )}
+                </div>
+              ))}
+           </div>
+        </section>
+      )}
     </div>
   );
 }

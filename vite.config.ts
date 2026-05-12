@@ -17,7 +17,6 @@ export default defineConfig(({ mode }) => {
       },
     },
     server: {
-      // HMR is disabled in AI Studio via DISABLE_HMR env var.
       hmr: process.env.DISABLE_HMR !== 'true',
     },
     build: {
@@ -25,15 +24,10 @@ export default defineConfig(({ mode }) => {
       rollupOptions: {
         output: {
           manualChunks: {
-            // Core React
             'vendor-react': ['react', 'react-dom', 'react-router-dom'],
-            // Firebase (large — isolated for caching)
             'vendor-firebase': ['firebase/app', 'firebase/auth', 'firebase/firestore', 'firebase/storage'],
-            // tldraw (very large — split out)
             'vendor-tldraw': ['tldraw'],
-            // Motion / animation
             'vendor-motion': ['motion', 'framer-motion'],
-            // Charts
             'vendor-recharts': ['recharts'],
           },
         },

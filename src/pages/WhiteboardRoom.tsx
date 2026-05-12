@@ -1,16 +1,14 @@
 import React, { Suspense, lazy, useEffect, useState } from 'react';
-import { useParams, Link } from 'react-router-dom';
-import { ArrowLeft, Share2, Users, Shield, ShieldAlert, Lock, Unlock, Loader2 } from 'lucide-react';
+import { useParams } from 'react-router-dom';
+import { Share2, Users, Shield, ShieldAlert, Lock, Unlock, Loader2, X, Monitor } from 'lucide-react';
 import { useAuth } from '../AuthContext';
-import { db } from '../lib/firebase';
+import { db, storage } from '../lib/firebase';
 import { doc, onSnapshot, setDoc, updateDoc, serverTimestamp, collection, addDoc, query, orderBy } from 'firebase/firestore';
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
-import { storage } from '../lib/firebase';
 import AudioRecorder from '../components/AudioRecorder';
+import BackButton from '../components/BackButton';
 
 const Whiteboard = lazy(() => import('../components/Whiteboard'));
-
-import BackButton from '../components/BackButton';
 
 export default function WhiteboardRoom() {
   const { sessionId } = useParams<{ sessionId: string }>();
@@ -20,15 +18,16 @@ export default function WhiteboardRoom() {
   const [audioNotes, setAudioNotes] = useState<any[]>([]);
   const [isUploadingAudio, setIsUploadingAudio] = useState(false);
   
-  const isAdmin = profile?.role === 'admin' || profile?.email === 'mudzimwapanashe123@gmail.com';
+  const isGlobalAdmin = profile?.role === 'admin' || profile?.email === 'mudzimwapanashe123@gmail.com';
+  const isAdmin = isGlobalAdmin || session?.hostUid === user?.uid;
 
   useEffect(() => {
     if (!sessionId || !user) return;
 
     const unsub = onSnapshot(doc(db, 'sessions', sessionId), async (snap) => {
       if (!snap.exists()) {
-        if (isAdmin) {
-          // Initialize session if admin
+        if (isGlobalAdmin || (sessionId && sessionId.includes(user.uid))) {
+          // Initialize session if admin or intended host
           await setDoc(doc(db, 'sessions', sessionId), {
             hostUid: user.uid,
             hostName: profile?.displayName || profile?.email,
@@ -119,7 +118,7 @@ export default function WhiteboardRoom() {
              <BackButton to={isAdmin ? "/admin" : "/dashboard"} label="Exit Node" />
              <div className="bg-[#0A0C14]/80 backdrop-blur-md px-4 py-2 rounded-2xl border border-white/10">
                 <h1 className="text-sm md:text-base font-black italic uppercase tracking-tighter text-white flex items-center gap-2">
-                   Training <span className="text-cyan-400">Node</span> 
+                   Neural <span className="text-purple-400">Classroom</span> 
                    <span className="hidden sm:inline text-[8px] md:text-[10px] font-black uppercase tracking-widest px-2 py-1 bg-white/5 rounded-full border border-white/5 text-gray-600">ID: {sessionId?.substring(0, 8)}</span>
                 </h1>
              </div>
@@ -137,7 +136,7 @@ export default function WhiteboardRoom() {
              )}
 
              <div className="hidden md:flex items-center gap-2 px-4 py-3 glass-panel rounded-2xl border-white/10 bg-[#0A0C14]/80 backdrop-blur-md">
-                {isAdmin ? <Shield size={16} className="text-cyan-400" /> : <ShieldAlert size={16} className="text-amber-500" />}
+                {isAdmin ? <Shield size={16} className="text-purple-400" /> : <ShieldAlert size={16} className="text-amber-500" />}
                 <span className="text-[10px] font-black uppercase tracking-widest text-gray-400">
                    {isAdmin ? 'Host Privilege Active' : (session?.isLocked ? 'Observation Mode' : 'Collaboration Mode')}
                 </span>
